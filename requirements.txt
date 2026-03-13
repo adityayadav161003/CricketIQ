@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────
+# CricketIQ — Python Dependencies
+# Install with: pip install -r requirements.txt
+# ─────────────────────────────────────────────
+
+# ── Data Processing ──────────────────────────
+pandas==2.2.1
+numpy==1.26.4
+pyarrow==15.0.2          # Parquet file I/O
+
+# ── HTTP / Download ───────────────────────────
+requests==2.31.0
+tqdm==4.66.2             # Progress bars for downloads
+
+# ── Machine Learning ──────────────────────────
+scikit-learn==1.4.1.post1
+xgboost==2.0.3
+joblib==1.3.2            # Model serialization
+
+# ── Backend ───────────────────────────────────
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+pydantic==2.6.4
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+
+# ── Database ──────────────────────────────────
+sqlalchemy==2.0.29
+asyncpg==0.29.0          # Async PostgreSQL driver
+alembic==1.13.1          # DB migrations
+psycopg2-binary==2.9.9   # Sync driver (for scripts)
+
+# ── Notebooks / EDA ───────────────────────────
+jupyter==1.0.0
+ipykernel==6.29.3
+matplotlib==3.8.3
+seaborn==0.13.2
+plotly==5.20.0
+
+# ── Utilities ────────────────────────────────
+python-multipart==0.0.9  # File uploads in FastAPI
+httpx==0.27.0            # Async HTTP client (for tests)
