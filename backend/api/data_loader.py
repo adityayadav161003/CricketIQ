@@ -1,7 +1,7 @@
 """
 CricketIQ — Shared data loader for the FastAPI layer.
 
-Loads processed parquet files once at startup and caches them in memory.
+Loads processed csv files once at startup and caches them in memory.
 All routers import from this module to avoid redundant I/O.
 """
 import logging
@@ -17,12 +17,12 @@ PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 
 def _load(filename: str) -> pd.DataFrame:
-    """Load a single parquet file. Returns an empty DataFrame if missing."""
+    """Load a single csv file. Returns an empty DataFrame if missing."""
     path = PROCESSED_DIR / filename
     if not path.exists():
-        logger.warning(f"Parquet not found: {path}. Returning empty DataFrame.")
+        logger.warning(f"csv not found: {path}. Returning empty DataFrame.")
         return pd.DataFrame()
-    df = pd.read_parquet(path)
+    df = pd.read_csv(path)
     logger.info(f"Loaded {filename}: {len(df):,} rows")
     return df
 
@@ -31,31 +31,31 @@ def _load(filename: str) -> pd.DataFrame:
 
 @lru_cache(maxsize=1)
 def batting_stats() -> pd.DataFrame:
-    return _load("batting_stats.parquet")
+    return _load("batting_stats.csv")
 
 @lru_cache(maxsize=1)
 def batting_phase_stats() -> pd.DataFrame:
-    return _load("batting_phase_stats.parquet")
+    return _load("batting_phase_stats.csv")
 
 @lru_cache(maxsize=1)
 def bowling_stats() -> pd.DataFrame:
-    return _load("bowling_stats.parquet")
+    return _load("bowling_stats.csv")
 
 @lru_cache(maxsize=1)
 def bowling_phase_stats() -> pd.DataFrame:
-    return _load("bowling_phase_stats.parquet")
+    return _load("bowling_phase_stats.csv")
 
 @lru_cache(maxsize=1)
 def match_summary() -> pd.DataFrame:
-    return _load("match_summary.parquet")
+    return _load("match_summary.csv")
 
 @lru_cache(maxsize=1)
 def match_stats() -> pd.DataFrame:
-    return _load("match_stats.parquet")
+    return _load("match_stats.csv")
 
 @lru_cache(maxsize=1)
 def over_progression() -> pd.DataFrame:
-    return _load("over_progression.parquet")
+    return _load("over_progression.csv")
 
 
 def safe_json(df: pd.DataFrame) -> list[dict]:

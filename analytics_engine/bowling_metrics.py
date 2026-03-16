@@ -21,7 +21,7 @@ logging.basicConfig(
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-DELIVERIES_PATH = PROCESSED_DIR / "deliveries.parquet"
+DELIVERIES_PATH = PROCESSED_DIR / "deliveries.csv"
 
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ def load_deliveries(path: Path = DELIVERIES_PATH) -> pd.DataFrame:
             "Run data_pipeline/parse_matches.py first."
         )
     logging.info(f"Loading deliveries from {path}...")
-    df = pd.read_parquet(path)
+    df = pd.read_csv(path)
     logging.info(f"  Loaded {len(df):,} delivery records.")
     return df
 
@@ -43,7 +43,7 @@ def save_parquet(df: pd.DataFrame, filename: str) -> None:
     """Save a DataFrame to the processed directory as parquet."""
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     out_path = PROCESSED_DIR / filename
-    df.to_parquet(out_path, index=False)
+    df.to_csv(out_path, index=False)
     logging.info(f"  Saved {len(df):,} rows → {out_path.name}")
 
 
@@ -173,10 +173,10 @@ def run(deliveries_path: Path = DELIVERIES_PATH) -> None:
     df = load_deliveries(deliveries_path)
 
     career = compute_career_bowling(df)
-    save_parquet(career, "bowling_stats.parquet")
+    save_parquet(career, "bowling_stats.csv")
 
     phase = compute_phase_bowling(df)
-    save_parquet(phase, "bowling_phase_stats.parquet")
+    save_parquet(phase, "bowling_phase_stats.csv")
 
     logging.info("Bowling analytics complete.")
 

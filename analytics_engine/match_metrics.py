@@ -28,8 +28,8 @@ logging.basicConfig(
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-DELIVERIES_PATH = PROCESSED_DIR / "deliveries.parquet"
-MATCHES_PATH = PROCESSED_DIR / "matches.parquet"
+DELIVERIES_PATH = PROCESSED_DIR / "deliveries.csv"
+MATCHES_PATH = PROCESSED_DIR / "matches.csv"
 
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
@@ -47,8 +47,8 @@ def load_data(
             )
 
     logging.info("Loading deliveries and matches...")
-    deliveries = pd.read_parquet(deliveries_path)
-    matches = pd.read_parquet(matches_path)
+    deliveries = pd.read_csv(deliveries_path)
+    matches = pd.read_csv(matches_path)
     logging.info(
         f"  Deliveries: {len(deliveries):,} rows | Matches: {len(matches):,} rows"
     )
@@ -59,7 +59,7 @@ def save_parquet(df: pd.DataFrame, filename: str) -> None:
     """Save a DataFrame to the processed directory as parquet."""
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     out_path = PROCESSED_DIR / filename
-    df.to_parquet(out_path, index=False)
+    df.to_csv(out_path, index=False)
     logging.info(f"  Saved {len(df):,} rows → {out_path.name}")
 
 
@@ -248,15 +248,15 @@ def run(
 
     # 1 — Per-match phase scoring summary
     phase_stats = compute_match_phase_stats(deliveries)
-    save_parquet(phase_stats, "match_stats.parquet")
+    save_parquet(phase_stats, "match_stats.csv")
 
     # 2 — Over-by-over run rate progression
     over_prog = compute_over_progression(deliveries)
-    save_parquet(over_prog, "over_progression.parquet")
+    save_parquet(over_prog, "over_progression.csv")
 
     # 3 — Match-level summary (for API list views)
     match_summary = compute_match_summary(deliveries, matches)
-    save_parquet(match_summary, "match_summary.parquet")
+    save_parquet(match_summary, "match_summary.csv")
 
     logging.info("Match analytics complete.")
 

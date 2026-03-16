@@ -1,13 +1,15 @@
 """
-CricketIQ Data Pipeline - Match Parser.
+CricketIQ Data Pipeline — Match Parser (IPL + T20I filtered, CSV output).
 
-Reads raw Cricsheet JSON files and extracts match metadata and ball-by-ball 
-delivery records into structured pandas DataFrames.
+Reads raw Cricsheet JSON files, keeps only T20 matches, and writes:
+  - matches.csv     : match metadata
+  - deliveries.csv  : ball-by-ball records
+
+Processes in batches of 1000 for memory safety.
 """
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
 
 import pandas as pd
 from tqdm import tqdm
@@ -18,156 +20,170 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 
-def determine_phase(over: int, match_type: str = "T20") -> str:
-    """Determine the phase of the game based on the over (0-indexed)."""
-    if match_type in ["T20", "T20I", "IT20"]:
-        if over < 6:
-            return "powerplay"
-        elif over < 15:
-            return "middle"
-        else:
-            return "death"
-    # Simple default fallback
-    return "middle"
+# Allowed match types (T20 covers IPL; T20I / IT20 covers internationals)
+ALLOWED_MATCH_TYPES = {"T20", "T20I", "IT20"}
 
-def parse_match(file_path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+
+def _phase(over: int) -> str:
+    if over < 6:
+        return "powerplay"
+    if over < 15:
+        return "middle"
+    return "death"
+
+
+def _s(v) -> str:
+    return str(v) if v is not None else ""
+
+
+def _i(v) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def parse_match(file_path: Path):
     """
-    Parse a single match JSON file.
-    Returns:
-        match_info (dict): Metadata about the match.
-        deliveries (list of dicts): Ball-by-ball data for the entire match.
+    Parse one Cricsheet JSON and return (match_row, deliveries).
+    Returns (None, None) if the match should be skipped.
     """
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        
+    with open(file_path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+
     info = data.get("info", {})
-    cricsheet_id = file_path.stem
-    match_type = info.get("match_type", "T20")
-    
-    # Safe extraction of match metadata
-    match_info = {
-        "cricsheet_id": cricsheet_id,
-        "season": info.get("season"),
-        "match_date": info.get("dates", [None])[0],
-        "venue": info.get("venue"),
-        "city": info.get("city"),
-        "team1": info.get("teams", [None, None])[0],
-        "team2": info.get("teams", [None, None])[1] if len(info.get("teams", [])) > 1 else None,
-        "toss_winner": info.get("toss", {}).get("winner"),
-        "toss_decision": info.get("toss", {}).get("decision"),
-        "winner": info.get("outcome", {}).get("winner"),
-        "win_by_runs": info.get("outcome", {}).get("by", {}).get("runs"),
-        "win_by_wickets": info.get("outcome", {}).get("by", {}).get("wickets"),
-        "player_of_match": info.get("player_of_match", [None])[0] if info.get("player_of_match") else None,
-        "match_type": match_type,
-        "gender": info.get("gender"),
-        "json_source": file_path.name
-    }
-    
-    # Extract ball-by-ball deliveries
-    deliveries_list = []
-    
-    innings_data = data.get("innings", [])
-    for idx, inning_obj in enumerate(innings_data):
-        innings_num = idx + 1
-        
-        # Depending on Cricsheet JSON format (sometimes it's nested dicts or lists)
-        overs = inning_obj.get("overs", [])
-        for over_data in overs:
-            over = over_data.get("over", 0)
-            phase = determine_phase(over, match_type)
-            
-            for ball_idx, ball_data in enumerate(over_data.get("deliveries", [])):
-                ball = ball_idx + 1
-                
-                runs_info = ball_data.get("runs", {})
-                extras_info = ball_data.get("extras", {})
-                wickets_info = ball_data.get("wickets", [])
-                
-                is_wicket = len(wickets_info) > 0
-                dismissal_type = wickets_info[0].get("kind") if is_wicket else None
-                player_out = wickets_info[0].get("player_out") if is_wicket else None
-                
-                # Fielder extraction (might be an array of fielders)
-                fielder = None
-                if is_wicket and "fielders" in wickets_info[0] and len(wickets_info[0]["fielders"]) > 0:
-                    fielder = wickets_info[0]["fielders"][0].get("name")
-                
-                runs_batter = runs_info.get("batter", 0)
-                is_boundary_4 = runs_batter == 4
-                is_boundary_6 = runs_batter == 6
-                is_dot_ball = runs_batter == 0 and sum(extras_info.values()) == 0 and not is_wicket
+    match_type = _s(info.get("match_type", ""))
 
-                delivery_record = {
-                    "cricsheet_id": cricsheet_id,  # to link back to match
-                    "innings": innings_num,
-                    "over": over,
-                    "ball": ball,
-                    "phase": phase,
-                    "batter": ball_data.get("batter"),
-                    "non_striker": ball_data.get("non_striker"),
-                    "bowler": ball_data.get("bowler"),
-                    "runs_batter": runs_batter,
-                    "runs_extras": runs_info.get("extras", 0),
-                    "runs_total": runs_info.get("total", 0),
-                    "extras_wides": extras_info.get("wides", 0),
-                    "extras_noballs": extras_info.get("noballs", 0),
-                    "extras_byes": extras_info.get("byes", 0),
-                    "extras_legbyes": extras_info.get("legbyes", 0),
-                    "extras_penalty": extras_info.get("penalty", 0),
-                    "is_wicket": is_wicket,
-                    "dismissal_type": dismissal_type,
-                    "player_out": player_out,
-                    "fielder": fielder,
-                    "is_boundary_4": is_boundary_4,
-                    "is_boundary_6": is_boundary_6,
-                    "is_dot_ball": is_dot_ball
-                }
-                deliveries_list.append(delivery_record)
-                
-    return match_info, deliveries_list
+    # ── Filter: only T20 formats ──────────────────────────────────────────
+    if match_type not in ALLOWED_MATCH_TYPES:
+        return None, None
+
+    cid = file_path.stem
+    teams = info.get("teams", [])
+    outcome = info.get("outcome", {})
+    toss = info.get("toss", {})
+    potm = info.get("player_of_match") or []
+    event = info.get("event", {})
+
+    match_row = {
+        "cricsheet_id":    cid,
+        "competition":     _s(event.get("name")),
+        "season":          _s(info.get("season")),
+        "match_date":      _s((info.get("dates") or [""])[0]),
+        "venue":           _s(info.get("venue")),
+        "city":            _s(info.get("city")),
+        "team1":           _s(teams[0]) if len(teams) > 0 else "",
+        "team2":           _s(teams[1]) if len(teams) > 1 else "",
+        "toss_winner":     _s(toss.get("winner")),
+        "toss_decision":   _s(toss.get("decision")),
+        "winner":          _s(outcome.get("winner")),
+        "win_by_runs":     _i(outcome.get("by", {}).get("runs", 0)),
+        "win_by_wickets":  _i(outcome.get("by", {}).get("wickets", 0)),
+        "player_of_match": _s(potm[0]) if potm else "",
+        "match_type":      match_type,
+        "gender":          _s(info.get("gender")),
+    }
+
+    deliveries = []
+    for inn_idx, inning in enumerate(data.get("innings", [])):
+        inn_num = inn_idx + 1
+        for od in inning.get("overs", []):
+            ov = _i(od.get("over", 0))
+            ph = _phase(ov)
+            for ball_idx, ball in enumerate(od.get("deliveries", [])):
+                runs   = ball.get("runs", {})
+                extras = ball.get("extras", {})
+                wkts   = ball.get("wickets", [])
+
+                rb  = _i(runs.get("batter", 0))
+                ext = _i(runs.get("extras", 0))
+                rt  = _i(runs.get("total",  0))
+
+                is_wkt = 1 if wkts else 0
+                dt = _s(wkts[0].get("kind"))           if wkts else ""
+                po = _s(wkts[0].get("player_out"))     if wkts else ""
+                fi_list = wkts[0].get("fielders", [])  if wkts else []
+                fi = _s(fi_list[0].get("name")) if fi_list else ""
+
+                deliveries.append({
+                    "cricsheet_id":   cid,
+                    "innings":        inn_num,
+                    "over":           ov,
+                    "ball":           ball_idx + 1,
+                    "phase":          ph,
+                    "batter":         _s(ball.get("batter")),
+                    "non_striker":    _s(ball.get("non_striker")),
+                    "bowler":         _s(ball.get("bowler")),
+                    "runs_batter":    rb,
+                    "runs_extras":    ext,
+                    "runs_total":     rt,
+                    "extras_wides":   _i(extras.get("wides",   0)),
+                    "extras_noballs": _i(extras.get("noballs", 0)),
+                    "extras_byes":    _i(extras.get("byes",    0)),
+                    "extras_legbyes": _i(extras.get("legbyes", 0)),
+                    "extras_penalty": _i(extras.get("penalty", 0)),
+                    "is_wicket":      is_wkt,
+                    "dismissal_type": dt,
+                    "player_out":     po,
+                    "fielder":        fi,
+                    "is_boundary_4":  1 if rb == 4 else 0,
+                    "is_boundary_6":  1 if rb == 6 else 0,
+                    "is_dot_ball":    1 if (rb == 0 and ext == 0 and not is_wkt) else 0,
+                })
+
+    return match_row, deliveries
+
 
 def main():
-    """Main execution block."""
     if not RAW_DATA_DIR.exists():
-        logging.error(f"Raw data directory missing: {RAW_DATA_DIR}. Run download_data.py first.")
+        logging.error(f"Raw data dir missing: {RAW_DATA_DIR}. Run download_data.py first.")
         return
 
     json_files = list(RAW_DATA_DIR.glob("*.json"))
-    if not json_files:
-        logging.error(f"No JSON files found in {RAW_DATA_DIR}.")
-        return
-        
-    logging.info(f"Found {len(json_files)} match files. Parsing...")
-    
-    all_matches = []
-    all_deliveries = []
-    
-    # Process files
-    for file_path in tqdm(json_files, desc="Parsing matches"):
-        try:
-            match_info, deliveries = parse_match(file_path)
-            all_matches.append(match_info)
-            all_deliveries.extend(deliveries)
-        except Exception as e:
-            logging.warning(f"Failed to parse {file_path.name}: {e}")
-            
-    # Convert to DataFrames
-    matches_df = pd.DataFrame(all_matches)
-    deliveries_df = pd.DataFrame(all_deliveries)
-    
-    # Clean matches formatting/types
-    matches_df['match_date'] = pd.to_datetime(matches_df['match_date'], errors='coerce')
-    
-    logging.info(f"Parsed {len(matches_df)} matches and {len(deliveries_df)} deliveries.")
-    
-    # Save to processed directory (parquet is faster and maintains data types)
+    logging.info(f"Found {len(json_files)} JSON files. Parsing (T20 only)...")
+
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    
-    matches_df.to_parquet(PROCESSED_DATA_DIR / "matches.parquet", index=False)
-    deliveries_df.to_parquet(PROCESSED_DATA_DIR / "deliveries.parquet", index=False)
-    
-    logging.info(f"Saved DataFrames to {PROCESSED_DATA_DIR}")
+    matches_csv = PROCESSED_DATA_DIR / "matches.csv"
+    deliveries_csv = PROCESSED_DATA_DIR / "deliveries.csv"
+
+    if matches_csv.exists():
+        matches_csv.unlink()
+    if deliveries_csv.exists():
+        deliveries_csv.unlink()
+
+    batch_size = 1000
+    total_m, total_d, skipped = 0, 0, 0
+
+    for i in tqdm(range(0, len(json_files), batch_size), desc="Batch parsing"):
+        batch = json_files[i:i + batch_size]
+        batch_matches, batch_deliveries = [], []
+
+        for fp in batch:
+            try:
+                m, d = parse_match(fp)
+                if m is None:
+                    skipped += 1
+                    continue
+                batch_matches.append(m)
+                batch_deliveries.extend(d)
+            except Exception as exc:
+                logging.warning(f"Skipping {fp.name}: {exc}")
+
+        if not batch_matches:
+            continue
+
+        mdf = pd.DataFrame(batch_matches)
+        ddf = pd.DataFrame(batch_deliveries)
+        total_m += len(mdf)
+        total_d += len(ddf)
+
+        mode = "a" if i > 0 else "w"
+        header = (i == 0)
+        mdf.to_csv(matches_csv, mode=mode, header=header, index=False)
+        ddf.to_csv(deliveries_csv, mode=mode, header=header, index=False)
+
+    logging.info(f"Saved {total_m} matches ({total_d} deliveries). Skipped {skipped} non-T20 files.")
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Data (large files — mount as volume instead)
+data/raw/
+data/*.zip
+
+# Development artifacts
+.pytest_cache/
+*.log
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+
+# ML model artifacts (too large for image)
+ml_models/*.pkl
+ml_models/*.joblib
+ml_models/*.xgb
